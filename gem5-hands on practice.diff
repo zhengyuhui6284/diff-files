@@ -1,0 +1,97 @@
+diff -r 5ce0c4e42f93 src/cpu/inorder/InOrderCPU.py
+--- a/src/cpu/inorder/InOrderCPU.py	Fri Oct 19 10:16:18 2012 -0400
++++ b/src/cpu/inorder/InOrderCPU.py	Tue Oct 29 19:44:20 2013 -0400
+@@ -40,7 +40,7 @@
+     threadModel = Param.ThreadModel('SMT', "Multithreading model (SE-MODE only)")
+     
+     cachePorts = Param.Unsigned(2, "Cache Ports")
+-    stageWidth = Param.Unsigned(4, "Stage width")
++    stageWidth = Param.Unsigned(1, "Stage width")
+ 
+     fetchBuffSize = Param.Unsigned(4, "Fetch Buffer Size (Number of Cache Blocks Stored)")
+     memBlockSize = Param.Unsigned(64, "Memory Block Size")
+diff -r 5ce0c4e42f93 src/cpu/inorder/cpu.cc
+--- a/src/cpu/inorder/cpu.cc	Fri Oct 19 10:16:18 2012 -0400
++++ b/src/cpu/inorder/cpu.cc	Tue Oct 29 19:44:20 2013 -0400
+@@ -473,6 +474,10 @@
+     }
+ 
+     int stage_num = ThePipeline::BackEndStartStage;
++    // part 3: split Ex stage
++    // Don't bypass any value after X2.
++    //StageScheduler X2(res_sked, stage_num++);
++
+     StageScheduler X(res_sked, stage_num++);
+     StageScheduler M(res_sked, stage_num++);
+     StageScheduler W(res_sked, stage_num++);
+@@ -481,10 +486,15 @@
+         warn_once("Static Instruction Object Not Set. Can't Create"
+                   " Back End Schedule");
+         return NULL;
+-    }
++     }
+ 
++    // part 3: Split Ex Stage
++    // creating structural hazard, worst case cpi
++    //X2.needs(RegManager, UseDefUnit::MarkDestRegs);
++ 
+     // EXECUTE
+     X.needs(RegManager, UseDefUnit::MarkDestRegs);
++
+     for (int idx=0; idx < inst->numSrcRegs(); idx++) {
+         if (!idx || !inst->isStore()) {
+             X.needs(RegManager, UseDefUnit::ReadSrcReg, idx);
+ 
+diff -r 5ce0c4e42f93 src/cpu/inorder/pipeline_traits.hh
+--- a/src/cpu/inorder/pipeline_traits.hh	Fri Oct 19 10:16:18 2012 -0400
++++ b/src/cpu/inorder/pipeline_traits.hh	Tue Oct 29 19:44:20 2013 -0400
+@@ -49,7 +49,12 @@
+  */
+ namespace ThePipeline {
+     // Pipeline Constants
++   
+     const unsigned NumStages = 5;
++
++    // part 3: split Ex stage
++    //const unsigned NumStages = 6;
++
+     const ThreadID MaxThreads = 1;
+     const unsigned BackEndStartStage = 2;
+ 
+diff -r 5ce0c4e42f93 src/cpu/inorder/reg_dep_map.cc
+--- a/src/cpu/inorder/reg_dep_map.cc	Fri Oct 19 10:16:18 2012 -0400
++++ b/src/cpu/inorder/reg_dep_map.cc	Tue Oct 29 19:44:20 2013 -0400
+@@ -225,6 +225,7 @@
+ 
+     // Look for instruction immediately in front of requestor to supply
+     // data
++    // part 1: comment out while loop(next 5 lines). forward_inst always = NULL, disable bypass
+     while (list_it != list_end &&
+            (*list_it)->seqNum < inst->seqNum) {
+         forward_inst = (*list_it);
+diff -r 5ce0c4e42f93 src/cpu/inorder/resources/bpred_unit.cc
+--- a/src/cpu/inorder/resources/bpred_unit.cc	Fri Oct 19 10:16:18 2012 -0400
++++ b/src/cpu/inorder/resources/bpred_unit.cc	Tue Oct 29 19:44:20 2013 -0400
+@@ -38,6 +38,7 @@
+ #include "cpu/inorder/resources/bpred_unit.hh"
+ #include "debug/InOrderBPred.hh"
+ #include "debug/Resource.hh"
++#include "base/random.hh"
+ 
+ using namespace std;
+ using namespace ThePipeline;
+@@ -192,9 +192,19 @@
+         pred_taken = BPLookup(predPC.instAddr(), bp_history);
+     }
+ 
++    // part 2: 
++    // 0% - do the contrary as predicted
++    //pred_taken = (!pred_taken);
++
++    // 50% - do the contrary, when rand()%100 >49
++    /*if (rand()%100 >49) {
++	 //pred_taken = (!pred_taken);
++    }*/
++
+     PredictorHistory predict_record(inst->seqNum, predPC, pred_taken,
+                                     bp_history, tid);
